@@ -1,69 +1,60 @@
-# Temporal post-assessment starter
+# Juniper Salon — waitlist concierge
 
-This repository provides a working local Temporal environment, API, Worker, and browser interface. The included neutral demo is intentionally unrelated to the customer’s final process. Use what you learn in the customer conversation to replace it.
+A local Temporal prototype for Lena and Carla: offer cancelled appointments to eligible waitlisted clients, one at a time, with durable deadlines and no competing claims inside the demo.
 
-## Important: create a new public repository—do not fork
+## Run locally
 
-Your submission must be in a brand-new **public** GitHub repository. **Do not use GitHub’s Fork button.** Forks connect submissions through GitHub’s fork network and can make other participants’ work easier to locate.
+Requires Node.js 20+ and Docker Desktop running. From the cloned repository folder, one command installs the locked dependencies and starts Temporal, the Worker, and the API:
 
-Do not add `john-b-yang` or `vishakhpk` as collaborators. Because the repository is public, the assessment team can review it without write access.
-
-Before the timed assessment:
-
-1. Create a new **public** repository in your assigned GitHub organization. Do not initialize it with a README.
-2. Clone the starter:
-
-   ```bash
-   git clone <STARTER_REPOSITORY_URL> temporal-assessment
-   cd temporal-assessment
-   ```
-
-3. Point the clone at your new repository:
-
-   ```bash
-   git remote remove origin
-   git branch -M main
-   git remote add origin git@github.com:<YOUR_ORGANIZATION>/<YOUR_REPOSITORY>.git
-   git push -u origin main
-   ```
-
-4. Confirm that GitHub displays the **Public** label and does not say “forked from” another repository.
-
-If you accidentally create a fork, do not push assessment work to it. Create a new public repository, change your local `origin`, and ask the course team to remove the fork. Do not search for or view other participants’ assessment repositories.
-
-## Verify setup before the timed assessment
-
-Requirements: Node.js 20 or newer and Docker Desktop.
-
-```bash
-npm install
-npm run dev
+```sh
+npm start
 ```
 
-Open <http://localhost:3000>, run the demo, and confirm that it completes. You can inspect it in the Temporal Web UI at <http://localhost:8233>. Setup time does not count toward the assessment.
+Open http://localhost:3000. Inspect Temporal at http://localhost:8233.
 
-Other commands:
-
-```bash
-npm test          # Run the starter Workflow test without Docker
-npm run typecheck # Check TypeScript
-npm run stop      # Stop the local Temporal service
+```sh
+npm run typecheck
+npm test
+npm run stop
 ```
 
-## Repository map
+## Demonstration
 
-- `src/workflows.ts` — durable Workflow logic and message handlers
-- `src/worker.ts` — Worker and Task Queue configuration
-- `src/api.ts` — browser-facing API and Temporal Client
-- `src/types.ts` — shared data types
-- `public/` — customer-facing interface
-- `tests/` — Workflow test example
+1. Add a Haircut opening with Lena, today at least an hour ahead, duration 60 minutes.
+2. Select **Demo speed** for 15-second deadlines (normal mode uses 15 minutes).
+3. Open the simulated client message. Decline or let it expire: the next matching client receives an offer automatically.
+4. Accept the next offer: the opening becomes confirmed and the waitlist request is removed.
+5. Reopen an expired offer: it cannot claim the opening. The API also rejects stale/duplicate replies and records them in history.
+6. Create another opening and mark it unavailable: any outstanding offer is cancelled.
+7. Use overlapping openings with different stylists to observe that each client can hold only one offer. Overlapping active/confirmed openings for the same stylist are rejected.
 
-You may change any application file. Do not edit generated files in `node_modules`.
+## Customer rules
 
-## Documentation
+Match service, availability covering the entire appointment, and any required stylist; prioritize oldest request. Use the opening's stylist and duration. Only existing waitlisted clients receive offers. One active offer per opening and per client. Declines and timeouts retain waitlist position; acceptance removes the request. Do not issue new offers with less than 15 minutes before the start. Late/duplicate/cancelled offers never create a booking. Staff see the current holder, responses, candidate snapshot and outcome.
 
-- [TypeScript developer guide](https://docs.temporal.io/develop/typescript)
-- [Workflows](https://docs.temporal.io/workflows)
-- [Activities](https://docs.temporal.io/activities)
-- [Signals, Queries, and Updates](https://docs.temporal.io/encyclopedia/workflow-message-passing)
+## Temporal architecture
+
+`src/workflows.ts` contains a long-lived salon coordinator Workflow. Temporal Updates serialize commands and return their outcome; Queries expose state. Durable timed conditions expire offers even with the browser closed. A single coordinator owns all reservations so concurrent acceptances and cross-opening client assignments share one authority. The Worker runs this code on `assessment-starter`; the API is a Temporal client. Docker stores Temporal history in a named volume, and Worker restarts recover workflow state from history.
+
+The coordinator is deliberately small-scope: production would need bounded history/Continue-As-New, a persistent client store, authenticated staff/client access, and suitable workflow versioning. There are no external delivery Activities because messages are simulated in the UI; actual SMS and Square calls belong in Activities with idempotency and retry handling.
+
+## Explicit simulations and assumptions
+
+- No SMS is sent. Private offer links simulate messages; demo data is fictional. Links are not production authentication. The staff API is unauthenticated: local use only.
+- Square is not read or updated. Acceptance confirms only in the demo; staff record the booking and any previous appointment change in Square. Staff must mark an opening unavailable if booked externally. No cross-system double-booking guarantee is claimed.
+- Sample clients are available all day on the day the coordinator is first created. Local API timezone determines "today". Only same-day openings are accepted.
+- Cancelling an offer stops outreach; marking unavailable stops outreach and cancels its offer. Accepted bookings must be handled in Square.
+- If all otherwise eligible clients are busy with other offers, finish unfilled rather than wait; staff can create a new opening to retry.
+- Simulated delivery always succeeds. Real delivery failure policy remains a customer follow-up.
+- Demo speed changes only response timeout, not the 15-minute appointment cutoff.
+- Waitlist creation/editing, production authentication, real integrations, and automatic rescheduling are excluded.
+
+To reset sample data for a new day, stop the app and use `docker compose down -v` before restarting. **This deletes the local demo's Temporal history and bookings.**
+
+Do not deploy publicly. Evaluators run the prototype locally.
+
+## Submission artifacts
+
+- [Temporal Web UI evidence](evidence/temporal-web-ui.png)
+- [Five-slide presentation for Lena](presentation/juniper-salon.pdf)
+- [Dashboard screenshot](evidence/juniper-dashboard.png)

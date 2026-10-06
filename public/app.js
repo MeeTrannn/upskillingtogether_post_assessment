@@ -1,40 +1,16 @@
-const phase = document.querySelector("#phase");
-const message = document.querySelector("#message");
-const start = document.querySelector("#start");
-const continueButton = document.querySelector("#continue");
-const requestIdText = document.querySelector("#request-id");
-let requestId;
-let pollTimer;
-
-async function refresh() {
-  if (!requestId) return;
-  const response = await fetch(`/api/demo/${requestId}`);
-  const status = await response.json();
-  if (!response.ok) {
-    phase.textContent = "Waiting for Worker";
-    message.textContent = "Temporal has the request and will continue when a Worker is available.";
-    return;
-  }
-  phase.textContent = status.phase;
-  message.textContent = status.message;
-  continueButton.hidden = status.phase !== "waiting";
-  if (status.phase === "complete") clearInterval(pollTimer);
-}
-
-start.addEventListener("click", async () => {
-  start.disabled = true;
-  const response = await fetch("/api/demo", { method: "POST" });
-  const body = await response.json();
-  requestId = body.requestId;
-  requestIdText.textContent = `Workflow ID: ${requestId}`;
-  start.hidden = true;
-  pollTimer = setInterval(() => refresh().catch(console.error), 500);
-  await refresh();
-});
-
-continueButton.addEventListener("click", async () => {
-  continueButton.disabled = true;
-  await fetch(`/api/demo/${requestId}/continue`, { method: "POST" });
-  await refresh();
-});
-
+const $=s=>document.querySelector(s);const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const time=t=>new Date(t).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+const left=t=>{const s=Math.max(0,Math.ceil((t-Date.now())/1000));return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`};
+async function api(url,body){const r=await fetch(url,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:undefined);const data=await r.json();if(!r.ok)throw Error(data.message||'Request failed');return data;}
+function toast(s){$('#toast').textContent=s;$('#toast').hidden=false;setTimeout(()=>$('#toast').hidden=true,6500)}
+const offerId=new URLSearchParams(location.search).get('offer');let loading=false;
+async function refresh(){if(loading)return;loading=true;try{if(offerId){await client();return;}const s=await api('/api/state');$('#connection').textContent='● Connected to booking service';
+$('#metrics').innerHTML=[['Open offers',s.openings.filter(o=>o.status==='waiting').length],['Confirmed',s.openings.filter(o=>o.status==='confirmed').length],['On the waitlist',s.clients.filter(c=>!c.fulfilled).length]].map(([a,b])=>`<div class="metric"><strong>${b}</strong><span>${a}</span></div>`).join('');
+$('#waitlist').innerHTML=s.clients.filter(c=>!c.fulfilled).sort((a,b)=>a.joined-b.joined).map(c=>`<div class="person">${esc(c.name)}<small>${esc(c.service)} · ${esc(c.stylist||'Any stylist')}</small></div>`).join('')||'<p>No requests remaining.</p>';
+const expanded=new Set([...document.querySelectorAll('details[open]')].map(d=>d.dataset.id));
+$('#openings').innerHTML=s.openings.map(o=>{const f=o.offers.find(f=>f.status==='active');return `<article class="card"><div class="row"><div><h3>${esc(o.service)} with ${esc(o.stylist)}</h3><p class="muted">${time(o.start)} · ${o.duration} minutes</p></div><span class="badge ${o.status}">${o.status}</span></div><p>${esc(o.reason)}</p>${f?`<div class="offer"><strong>${esc(f.clientName)} has the offer</strong><small>Response window: ${left(f.expires)} remaining${o.responseMs===15000?' · accelerated demo':''}</small><div class="actions"><a class="button" target="_blank" rel="noreferrer" href="/?offer=${encodeURIComponent(f.id)}">Open simulated client message ↗</a></div></div>`:''}${o.status==='confirmed'?'<p class="offer">Next step: record this booking and any appointment move in Square.</p>':''}<p class="muted">Remaining at last offer: ${esc(o.remaining.join(', ')||'None')}</p>${o.status==='waiting'?`<div class="actions"><button class="secondary" data-action="cancel" data-id="${o.id}">Stop outreach</button><button class="danger" data-action="unavailable" data-id="${o.id}">Mark unavailable</button></div>`:''}<details data-id="${o.id}" ${expanded.has(o.id)?'open':''}><summary>Response history · ${o.history.length} events</summary><ul>${o.history.map(h=>`<li>${time(h.at)} — ${esc(h.message)}</li>`).join('')}</ul>${o.offers.map(f=>`<p>${esc(f.clientName)} · ${f.status} <a href="/?offer=${encodeURIComponent(f.id)}" target="_blank" rel="noreferrer">View private offer</a></p>`).join('')}</details></article>`}).join('')||'<div class="empty"><h2>A fresh start for your schedule.</h2><p>Add an opening to offer it to the first matching client.<br>We’ll take care of the next step.</p></div>';
+}catch(e){if(!offerId)$('#connection').textContent=e.message;else $('#client').textContent=e.message;}finally{loading=false}}
+async function client(){const {offer:f,opening:o}=await api('/api/offers/'+encodeURIComponent(offerId));const active=f.status==='active'&&f.expires>Date.now();$('#client').innerHTML=`<p class="eyebrow">A PRIVATE INVITATION FOR ${esc(f.clientName)}</p><h1>A little time,<br><em>just for you.</em></h1><section class="card"><h2>${esc(o.service)} with ${esc(o.stylist)}</h2><p>${time(o.start)} · ${o.duration} minutes</p><p>${active?'This opening is held for you. Respond within '+left(f.expires)+'.':f.status==='accepted'?'Your appointment is confirmed. We look forward to seeing you.':'This offer is no longer available. Your waitlist request is retained unless you accepted another offer.'}</p>${active?'<div class="actions"><button data-reply="yes">Accept appointment</button><button class="secondary" data-reply="no">Decline</button></div>':''}</section><p class="muted">Local prototype · This private screen simulates a text message. Square updates are handled by salon staff.</p>`;}
+document.addEventListener('click',async e=>{const b=e.target.closest('button[data-action],button[data-reply]');if(!b)return;b.disabled=true;try{const r=b.dataset.reply?await api('/api/offers/'+encodeURIComponent(offerId)+'/respond',{accept:b.dataset.reply==='yes'}):await api('/api/openings/'+b.dataset.id+'/'+b.dataset.action,{});toast(r.message);await refresh();}catch(e){toast(e.message)}finally{b.disabled=false}});
+if(offerId){$('#staff').hidden=true;$('#client').hidden=false;}else{const d=new Date(Date.now()+2*3600000);d.setMinutes(Math.ceil(d.getMinutes()/15)*15,0,0);const local=new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);$('[name=start]').value=local;$('#opening').addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.target);const b=e.target.querySelector('button');b.disabled=true;try{const r=await api('/api/openings',{service:f.get('service'),stylist:f.get('stylist'),start:new Date(f.get('start')).getTime(),duration:Number(f.get('duration')),fast:f.has('fast')});toast(r.message);await refresh();}catch(e){toast(e.message)}finally{b.disabled=false}});}
+refresh();setInterval(refresh,1000);
